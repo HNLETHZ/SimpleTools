@@ -40,8 +40,8 @@ handles['genp_pruned'] = ( ('prunedGenParticles'           , '', 'PAT' ), Handle
 handles['genp_packed'] = ( ('packedGenParticles'           , '', 'PAT' ), Handle('std::vector<pat::PackedGenParticle>'           ) )
 handles['pvs'        ] = ( ('offlineSlimmedPrimaryVertices', '', 'PAT' ), Handle('std::vector<reco::Vertex>'                     ) )
 handles['svs'        ] = ( ('slimmedSecondaryVertices'     , '', 'PAT' ), Handle('std::vector<reco::VertexCompositePtrCandidate>') )
-handles['dsmuons'    ] = ( ('displacedGlobalMuons'         , '', 'RECO'), Handle('std::vector<reco::Track>'                      ) )
-handles['dgmuons'    ] = ( ('displacedStandAloneMuons'     , '', 'RECO'), Handle('std::vector<reco::Track>'                      ) )
+handles['dsmuons'    ] = ( ('displacedStandAloneMuons'     , '', 'RECO'), Handle('std::vector<reco::Track>'                      ) )
+handles['dgmuons'    ] = ( ('displacedGlobalMuons'         , '', 'RECO'), Handle('std::vector<reco::Track>'                      ) )
 
 ##########################################################################################
 # start looping on the events
@@ -130,18 +130,18 @@ for i, ev in enumerate(events):
     
     # all matchable objects
     # matchable = ev.electrons + ev.photons + ev.muons + ev.taus + ev.dsmuons + ev.dgmuons 
-    matchable = ev.electrons + ev.photons + ev.muons + ev.dsmuons + ev.dgmuons 
+    matchable = ev.electrons + ev.photons + ev.muons + ev.dsmuons + ev.dgmuons # better not to use taus for the time being
     
-    # impose the muon PDG ID to the displaced objects, thet otherwise carry none
+    # impose the muon PDG ID to the displaced objects, that otherwise carry none
     for mm in ev.dsmuons + ev.dgmuons:
-        mm.mass   = lambda : 0.10565836727619171
+        mm.mass   = lambda : 0.10565837
         mm.pdgId  = lambda : -(mm.charge()*13)
         
     # match gen to reco
     for ip in [the_hn.lep1.finallep, the_hn.lep2.finallep, the_pl.finallep]:
         ip.bestmatch     = None
         ip.bestmatchtype = None
-        ip.matches = inConeCollection(ip, matchable, 0.3, 0.)
+        ip.matches = inConeCollection(ip, matchable, 0.15, 0.)
         # to find the best match, give precedence to any matched 
         # particle in the matching cone with the correct PDG ID
         # then to the one which is closest

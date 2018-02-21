@@ -1,0 +1,11 @@
+<lcgdict>
+
+ <class name="HNLKinematicVertexFitter"/>
+
+ <class name="std::pair<edm::Ptr<pat::Muon>,TLorentzVector>"/>
+ <class name="edm::Wrapper<std::pair<edm::Ptr<pat::Muon>,TLorentzVector> >"/>
+
+ <class name="std::vector<std::pair<edm::Ptr<pat::Muon>,TLorentzVector> >"/>
+ <class name="edm::Wrapper<std::vector<std::pair<edm::Ptr<pat::Muon>,TLorentzVector> > >"/> 
+ 
+</lcgdict>

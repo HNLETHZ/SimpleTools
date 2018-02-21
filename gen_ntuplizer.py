@@ -101,55 +101,67 @@ for i, ev in enumerate(events):
             if mother and isAncestor(ip, mother):
                 finaldaus.append(ipp)
         ip.finaldaughters = sorted(finaldaus , key = lambda x : x.pt(), reverse = True)
-        ip.hasConvOrRad = (len(ip.finaldaughters)>0)
+        ip.hasConvOrRad = (len(ip.finaldaughters)>1)
+        if len(ip.finaldaughters)>1:
+            ip.finallep = max([ii for ii in ip.finaldaughters if ii.pdgId()==ip.pdgId()], key = lambda x : x.pt())
+#             import pdb ; pdb.set_trace()
         
-#     import pdb ; pdb.set_trace()
+#         if ip.hasConvOrRad:
+#             print ip.pdgId(), ip.pt(), ip.eta(), ip.phi()
+#             for ii in ip.finaldaughters: print ii.pdgId(), ii.pt(), ii.eta(), ii.phi()
+#             import pdb ; pdb.set_trace()
 
     ######################################################################################
     # fill the ntuple: each gen tau makes an entry
     for k, v in tofill_gen.iteritems(): tofill_gen[k] = -99. # initialise before filling
-    tofill_gen['run'       ] = ev.eventAuxiliary().run()
-    tofill_gen['lumi'      ] = ev.eventAuxiliary().luminosityBlock()
-    tofill_gen['event'     ] = ev.eventAuxiliary().event()
-    tofill_gen['nvtx'      ] = len(ev.pvs)
-    tofill_gen['hn_mass'   ] = the_hn.mass()
-    tofill_gen['hn_pt'     ] = the_hn.pt()
-    tofill_gen['hn_eta'    ] = the_hn.eta()
-    tofill_gen['hn_phi'    ] = the_hn.phi()
-    tofill_gen['hn_q'      ] = the_hn.charge()
-
-    tofill_gen['hn_2d_disp'] = displacement2D(the_hn.lep1, the_w)
-    tofill_gen['hn_3d_disp'] = displacement3D(the_hn.lep1, the_w)
-
-    tofill_gen['l0_mass'   ] = the_pl.mass()
-    tofill_gen['l0_pt'     ] = the_pl.pt()
-    tofill_gen['l0_eta'    ] = the_pl.eta()
-    tofill_gen['l0_phi'    ] = the_pl.phi()
-    tofill_gen['l0_q'      ] = the_pl.charge()
-    tofill_gen['l0_pdgid'  ] = the_pl.pdgId()
+    tofill_gen['run'         ] = ev.eventAuxiliary().run()
+    tofill_gen['lumi'        ] = ev.eventAuxiliary().luminosityBlock()
+    tofill_gen['event'       ] = ev.eventAuxiliary().event()
+    tofill_gen['nvtx'        ] = len(ev.pvs)
+    tofill_gen['hn_mass'     ] = the_hn.mass()
+    tofill_gen['hn_pt'       ] = the_hn.pt()
+    tofill_gen['hn_eta'      ] = the_hn.eta()
+    tofill_gen['hn_phi'      ] = the_hn.phi()
+    tofill_gen['hn_q'        ] = the_hn.charge()
   
-    tofill_gen['l1_mass'   ] = the_hn.lep1.mass()
-    tofill_gen['l1_pt'     ] = the_hn.lep1.pt()
-    tofill_gen['l1_eta'    ] = the_hn.lep1.eta()
-    tofill_gen['l1_phi'    ] = the_hn.lep1.phi()
-    tofill_gen['l1_q'      ] = the_hn.lep1.charge()
-    tofill_gen['l1_pdgid'  ] = the_hn.lep1.pdgId()
-    tofill_gen['l1_cov_rad'] = the_hn.lep1.hasConvOrRad
+    tofill_gen['hn_2d_disp'  ] = displacement2D(the_hn.lep1, the_w)
+    tofill_gen['hn_3d_disp'  ] = displacement3D(the_hn.lep1, the_w)
   
-    tofill_gen['l2_mass'   ] = the_hn.lep2.mass()
-    tofill_gen['l2_pt'     ] = the_hn.lep2.pt()
-    tofill_gen['l2_eta'    ] = the_hn.lep2.eta()
-    tofill_gen['l2_phi'    ] = the_hn.lep2.phi()
-    tofill_gen['l2_q'      ] = the_hn.lep2.charge()
-    tofill_gen['l2_pdgid'  ] = the_hn.lep2.pdgId()
-    tofill_gen['l2_cov_rad'] = the_hn.lep2.hasConvOrRad
+    tofill_gen['l0_mass'     ] = the_pl.mass()
+    tofill_gen['l0_pt'       ] = the_pl.pt()
+    tofill_gen['l0_eta'      ] = the_pl.eta()
+    tofill_gen['l0_phi'      ] = the_pl.phi()
+    tofill_gen['l0_q'        ] = the_pl.charge()
+    tofill_gen['l0_pdgid'    ] = the_pl.pdgId()
+    
+    tofill_gen['l1_mass'     ] = the_hn.lep1.mass()
+    tofill_gen['l1_pt'       ] = the_hn.lep1.pt()
+    tofill_gen['l1_eta'      ] = the_hn.lep1.eta()
+    tofill_gen['l1_phi'      ] = the_hn.lep1.phi()
+    if hasattr(the_hn.lep1, 'finallep'): tofill_gen['l1_final_pt' ] = the_hn.lep1.finallep.pt()
+    if hasattr(the_hn.lep1, 'finallep'): tofill_gen['l1_final_eta'] = the_hn.lep1.finallep.eta()
+    if hasattr(the_hn.lep1, 'finallep'): tofill_gen['l1_final_phi'] = the_hn.lep1.finallep.phi()
+    tofill_gen['l1_q'        ] = the_hn.lep1.charge()
+    tofill_gen['l1_pdgid'    ] = the_hn.lep1.pdgId()
+    tofill_gen['l1_conv_rad' ] = the_hn.lep1.hasConvOrRad
   
-    tofill_gen['nu_mass'   ] = the_hn.neu.mass()
-    tofill_gen['nu_pt'     ] = the_hn.neu.pt()
-    tofill_gen['nu_eta'    ] = the_hn.neu.eta()
-    tofill_gen['nu_phi'    ] = the_hn.neu.phi()
-    tofill_gen['nu_q'      ] = the_hn.neu.charge()
-    tofill_gen['nu_pdgid'  ] = the_hn.neu.pdgId()
+    tofill_gen['l2_mass'     ] = the_hn.lep2.mass()
+    tofill_gen['l2_pt'       ] = the_hn.lep2.pt()
+    tofill_gen['l2_eta'      ] = the_hn.lep2.eta()
+    tofill_gen['l2_phi'      ] = the_hn.lep2.phi()
+    if hasattr(the_hn.lep2, 'finallep'): tofill_gen['l2_final_pt' ] = the_hn.lep2.finallep.pt()
+    if hasattr(the_hn.lep2, 'finallep'): tofill_gen['l2_final_eta'] = the_hn.lep2.finallep.eta()
+    if hasattr(the_hn.lep2, 'finallep'): tofill_gen['l2_final_phi'] = the_hn.lep2.finallep.phi()
+    tofill_gen['l2_q'        ] = the_hn.lep2.charge()
+    tofill_gen['l2_pdgid'    ] = the_hn.lep2.pdgId()
+    tofill_gen['l2_conv_rad' ] = the_hn.lep2.hasConvOrRad
+   
+    tofill_gen['nu_mass'     ] = the_hn.neu.mass()
+    tofill_gen['nu_pt'       ] = the_hn.neu.pt()
+    tofill_gen['nu_eta'      ] = the_hn.neu.eta()
+    tofill_gen['nu_phi'      ] = the_hn.neu.phi()
+    tofill_gen['nu_q'        ] = the_hn.neu.charge()
+    tofill_gen['nu_pdgid'    ] = the_hn.neu.pdgId()
 
     ntuple_gen.Fill(array('f',tofill_gen.values()))
 

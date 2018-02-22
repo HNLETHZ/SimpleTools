@@ -1,4 +1,5 @@
 import ROOT
+import math
 from array import array
 from collections import OrderedDict
 from DataFormats.FWLite import Events, Handle
@@ -9,8 +10,13 @@ from PhysicsTools.Heppy.physicsobjects.Electron import Electron
 from PhysicsTools.Heppy.physicsobjects.Photon import Photon
 from PhysicsTools.Heppy.physicsobjects.Tau import Tau
 from PhysicsTools.Heppy.physicsobjects.PhysicsObject import PhysicsObject
-from utils import isAncestor, displacement2D, displacement3D # utility functions
+from utils import isAncestor, displacement2D, displacement3D, makeRecoVertex # utility functions
 from samples import samples
+
+##########################################################################################
+# load custom library to ROOT. This contains the kinematic vertex fitter class
+ROOT.gSystem.Load('libSimpleToolsHNLNtuple')
+from ROOT import HNLKinematicVertexFitter as VertexFitter
 
 ##########################################################################################
 # initialise output files to save the flat ntuples
@@ -21,7 +27,8 @@ tofill_gen = OrderedDict(zip(branches, [-99.]*len(branches))) # initialise all b
 ##########################################################################################
 # Get ahold of the events
 print '... loading files'
-events = Events(samples[:10]) # make sure this corresponds to your file name!
+# events = Events(samples[:1]) # make sure this corresponds to your file name!
+events = Events(samples) # make sure this corresponds to your file name!
 print 'done ...'
 maxevents = -1 # max events to process
 totevents = events.size() # total number of events in the files
@@ -127,16 +134,23 @@ for i, ev in enumerate(events):
     ev.taus      = map(Tau          , ev.taus     )
     ev.dsmuons   = map(PhysicsObject, ev.dsmuons  )
     ev.dgmuons   = map(PhysicsObject, ev.dgmuons  )
-    
-    # all matchable objects
-    # matchable = ev.electrons + ev.photons + ev.muons + ev.taus + ev.dsmuons + ev.dgmuons 
-    matchable = ev.electrons + ev.photons + ev.muons + ev.dsmuons + ev.dgmuons # better not to use taus for the time being
-    
+
     # impose the muon PDG ID to the displaced objects, that otherwise carry none
     for mm in ev.dsmuons + ev.dgmuons:
         mm.mass   = lambda : 0.10565837
         mm.pdgId  = lambda : -(mm.charge()*13)
-        
+
+    # also append a TrackRef, this will be needed for the refitting 
+    for jj, mm in enumerate(ev.dsmuons):
+        mm.track = lambda : ROOT.reco.TrackRef(handles['dsmuons'][1].product(), jj)
+
+    for jj, mm in enumerate(ev.dgmuons):
+        mm.track = lambda : ROOT.reco.TrackRef(handles['dgmuons'][1].product(), jj)
+    
+    # all matchable objects
+    # matchable = ev.electrons + ev.photons + ev.muons + ev.taus + ev.dsmuons + ev.dgmuons 
+    matchable = ev.electrons + ev.photons + ev.muons + ev.dsmuons + ev.dgmuons # better not to use taus for the time being
+            
     # match gen to reco
     for ip in [the_hn.lep1.finallep, the_hn.lep2.finallep, the_pl.finallep]:
         ip.bestmatch     = None
@@ -148,49 +162,78 @@ for i, ev in enumerate(events):
         ip.matches.sort(key = lambda x : (x.pdgId()==ip.pdgId(), -deltaR(x, ip)), reverse = True )
         if len(ip.matches):
             ip.bestmatch = ip.matches[0]
+            # remove already matched particles, avoid multiple matches to the same candidate
+            matchable.remove(ip.bestmatch)
             if ip.bestmatch in ev.electrons: ip.bestmatchtype = 0
             if ip.bestmatch in ev.photons  : ip.bestmatchtype = 1
             if ip.bestmatch in ev.muons    : ip.bestmatchtype = 2
             if ip.bestmatch in ev.taus     : ip.bestmatchtype = 3
             if ip.bestmatch in ev.dsmuons  : ip.bestmatchtype = 4
             if ip.bestmatch in ev.dgmuons  : ip.bestmatchtype = 5
+    
+    # let's refit the secondary vertex, IF both leptons match to some reco particle
+    if the_hn.lep1.finallep.bestmatch and the_hn.lep2.finallep.bestmatch:
+        # create a std::vector<RecoChargedCandidate> to be passed to the fitter 
+        tofit = ROOT.std.vector('reco::RecoChargedCandidate')()
+        # create a RecoChargedCandidate for each reconstructed lepton and flush it into the vector
+        for il in [the_hn.lep1.finallep.bestmatch, the_hn.lep2.finallep.bestmatch]:
+            # if the reco particle is a displaced thing, it does not have the p4() method, so let's build it 
+            myp4 = ROOT.Math.LorentzVector('<ROOT::Math::PxPyPzE4D<double> >')(il.px(), il.py(), il.pz(), math.sqrt(il.mass()**2 + il.px()**2 + il.py()**2 + il.pz()**2))
+            ic = ROOT.reco.RecoChargedCandidate() # instantiate a dummy RecoChargedCandidate
+            ic.setCharge(il.charge())             # assign the correct charge
+            ic.setP4(myp4)                        # assign the correct p4
+            ic.setTrack(il.track())               # set the correct TrackRef
+            if ic.track().isNonnull():              # check that the track is valid, there are photons around too!
+                tofit.push_back(ic)
+
+        # further sanity check: two *distinct* tracks
+        if tofit.size()==2 and tofit[0].track() != tofit[1].track():
+            # fit it!
+            vtxfit = VertexFitter()    # not sure one needs to re-instantiate this every time
+            svtree = vtxfit.Fit(tofit) # actual vertex fitting
+            ev.recoSv = None
+            # check that the vertex is good
+            if not svtree.get().isEmpty() and svtree.get().isValid():
+                svtree.movePointerToTheTop()
+                sv = svtree.currentDecayVertex().get()
+                ev.recoSv = makeRecoVertex(sv, kinVtxTrkSize=2) # need to do some gymastics
         
-    # import pdb ; pdb.set_trace()
+#             import pdb ; pdb.set_trace()
 
     ######################################################################################
     # fill the ntuple: each gen tau makes an entry
     for k, v in tofill_gen.iteritems(): tofill_gen[k] = -99. # initialise before filling
     
-    tofill_gen['run'        ] = ev.eventAuxiliary().run()
-    tofill_gen['lumi'       ] = ev.eventAuxiliary().luminosityBlock()
-    tofill_gen['event'      ] = ev.eventAuxiliary().event()
-    tofill_gen['nvtx'       ] = len(ev.pvs)
+    tofill_gen['run'         ] = ev.eventAuxiliary().run()
+    tofill_gen['lumi'        ] = ev.eventAuxiliary().luminosityBlock()
+    tofill_gen['event'       ] = ev.eventAuxiliary().event()
+    tofill_gen['nvtx'        ] = len(ev.pvs)
 
-    tofill_gen['in_acc'     ] = abs(the_hn.lep1.finallep.eta())<2.5 and \
-                                abs(the_hn.lep1.finallep.eta())<2.5 and \
-                                abs(the_pl.finallep     .eta())<2.5
+    tofill_gen['in_acc'      ] = abs(the_hn.lep1.finallep.eta())<2.5 and \
+                                 abs(the_hn.lep1.finallep.eta())<2.5 and \
+                                 abs(the_pl.finallep     .eta())<2.5
                                 
-    tofill_gen['hn_mass'    ] = the_hn.mass()
-    tofill_gen['hn_pt'      ] = the_hn.pt()
-    tofill_gen['hn_eta'     ] = the_hn.eta()
-    tofill_gen['hn_phi'     ] = the_hn.phi()
-    tofill_gen['hn_q'       ] = the_hn.charge()
-    tofill_gen['hn_vis_mass'] = the_hn.vishn.mass()
-    tofill_gen['hn_vis_pt'  ] = the_hn.vishn.pt()
-    tofill_gen['hn_vis_eta' ] = the_hn.vishn.eta()
-    tofill_gen['hn_vis_phi' ] = the_hn.vishn.phi()
+    tofill_gen['hn_mass'     ] = the_hn.mass()
+    tofill_gen['hn_pt'       ] = the_hn.pt()
+    tofill_gen['hn_eta'      ] = the_hn.eta()
+    tofill_gen['hn_phi'      ] = the_hn.phi()
+    tofill_gen['hn_q'        ] = the_hn.charge()
+    tofill_gen['hn_vis_mass' ] = the_hn.vishn.mass()
+    tofill_gen['hn_vis_pt'   ] = the_hn.vishn.pt()
+    tofill_gen['hn_vis_eta'  ] = the_hn.vishn.eta()
+    tofill_gen['hn_vis_phi'  ] = the_hn.vishn.phi()
   
-    tofill_gen['hn_2d_disp' ] = displacement2D(the_hn.lep1, the_w)
-    tofill_gen['hn_3d_disp' ] = displacement3D(the_hn.lep1, the_w)
+    tofill_gen['hn_2d_disp'  ] = displacement2D(the_hn.lep1, the_hn)
+    tofill_gen['hn_3d_disp'  ] = displacement3D(the_hn.lep1, the_hn)
   
-    tofill_gen['l0_mass'    ] = the_pl.mass()
-    tofill_gen['l0_pt'      ] = the_pl.finallep.pt()
-    tofill_gen['l0_eta'     ] = the_pl.finallep.eta()
-    tofill_gen['l0_phi'     ] = the_pl.finallep.phi()
-    tofill_gen['l0_q'       ] = the_pl.charge()
-    tofill_gen['l0_pdgid'   ] = the_pl.pdgId()
-    tofill_gen['l0_conv_rad'] = the_pl.hasConvOrRad
-    tofill_gen['l0_pt_loss' ] = the_pl.finallep.pt() / the_pl.pt()
+    tofill_gen['l0_mass'     ] = the_pl.mass()
+    tofill_gen['l0_pt'       ] = the_pl.finallep.pt()
+    tofill_gen['l0_eta'      ] = the_pl.finallep.eta()
+    tofill_gen['l0_phi'      ] = the_pl.finallep.phi()
+    tofill_gen['l0_q'        ] = the_pl.charge()
+    tofill_gen['l0_pdgid'    ] = the_pl.pdgId()
+    tofill_gen['l0_conv_rad' ] = the_pl.hasConvOrRad
+    tofill_gen['l0_pt_loss'  ] = the_pl.finallep.pt() / the_pl.pt()
     
     if the_pl.finallep.bestmatch:
         tofill_gen['l0_reco_mass'    ] = the_pl.finallep.bestmatch.mass()
@@ -204,14 +247,14 @@ for i, ev in enumerate(events):
         tofill_gen['l0_reco_vy'      ] = the_pl.finallep.bestmatch.vy()
         tofill_gen['l0_reco_vz'      ] = the_pl.finallep.bestmatch.vz()
         
-    tofill_gen['l1_mass'    ] = the_hn.lep1.mass()
-    tofill_gen['l1_pt'      ] = the_hn.lep1.finallep.pt()
-    tofill_gen['l1_eta'     ] = the_hn.lep1.finallep.eta()
-    tofill_gen['l1_phi'     ] = the_hn.lep1.finallep.phi()
-    tofill_gen['l1_q'       ] = the_hn.lep1.charge()
-    tofill_gen['l1_pdgid'   ] = the_hn.lep1.pdgId()
-    tofill_gen['l1_conv_rad'] = the_hn.lep1.hasConvOrRad
-    tofill_gen['l1_pt_loss' ] = the_hn.lep1.finallep.pt() / the_hn.lep1.pt()
+    tofill_gen['l1_mass'     ] = the_hn.lep1.mass()
+    tofill_gen['l1_pt'       ] = the_hn.lep1.finallep.pt()
+    tofill_gen['l1_eta'      ] = the_hn.lep1.finallep.eta()
+    tofill_gen['l1_phi'      ] = the_hn.lep1.finallep.phi()
+    tofill_gen['l1_q'        ] = the_hn.lep1.charge()
+    tofill_gen['l1_pdgid'    ] = the_hn.lep1.pdgId()
+    tofill_gen['l1_conv_rad' ] = the_hn.lep1.hasConvOrRad
+    tofill_gen['l1_pt_loss'  ] = the_hn.lep1.finallep.pt() / the_hn.lep1.pt()
 
     if the_hn.lep1.finallep.bestmatch:
         tofill_gen['l1_reco_mass'    ] = the_hn.lep1.finallep.bestmatch.mass()
@@ -225,14 +268,14 @@ for i, ev in enumerate(events):
         tofill_gen['l1_reco_vy'      ] = the_hn.lep1.finallep.bestmatch.vy()
         tofill_gen['l1_reco_vz'      ] = the_hn.lep1.finallep.bestmatch.vz()
   
-    tofill_gen['l2_mass'    ] = the_hn.lep2.mass()
-    tofill_gen['l2_pt'      ] = the_hn.lep2.finallep.pt()
-    tofill_gen['l2_eta'     ] = the_hn.lep2.finallep.eta()
-    tofill_gen['l2_phi'     ] = the_hn.lep2.finallep.phi()
-    tofill_gen['l2_q'       ] = the_hn.lep2.charge()
-    tofill_gen['l2_pdgid'   ] = the_hn.lep2.pdgId()
-    tofill_gen['l2_conv_rad'] = the_hn.lep2.hasConvOrRad
-    tofill_gen['l2_pt_loss' ] = the_hn.lep2.finallep.pt() / the_hn.lep2.pt()
+    tofill_gen['l2_mass'     ] = the_hn.lep2.mass()
+    tofill_gen['l2_pt'       ] = the_hn.lep2.finallep.pt()
+    tofill_gen['l2_eta'      ] = the_hn.lep2.finallep.eta()
+    tofill_gen['l2_phi'      ] = the_hn.lep2.finallep.phi()
+    tofill_gen['l2_q'        ] = the_hn.lep2.charge()
+    tofill_gen['l2_pdgid'    ] = the_hn.lep2.pdgId()
+    tofill_gen['l2_conv_rad' ] = the_hn.lep2.hasConvOrRad
+    tofill_gen['l2_pt_loss'  ] = the_hn.lep2.finallep.pt() / the_hn.lep2.pt()
 
     if the_hn.lep2.finallep.bestmatch:
         tofill_gen['l2_reco_mass'    ] = the_hn.lep2.finallep.bestmatch.mass()
@@ -246,16 +289,22 @@ for i, ev in enumerate(events):
         tofill_gen['l2_reco_vy'      ] = the_hn.lep2.finallep.bestmatch.vy()
         tofill_gen['l2_reco_vz'      ] = the_hn.lep2.finallep.bestmatch.vz()
    
-    tofill_gen['nu_mass'    ] = the_hn.neu.mass()
-    tofill_gen['nu_pt'      ] = the_hn.neu.pt()
-    tofill_gen['nu_eta'     ] = the_hn.neu.eta()
-    tofill_gen['nu_phi'     ] = the_hn.neu.phi()
-    tofill_gen['nu_q'       ] = the_hn.neu.charge()
-    tofill_gen['nu_pdgid'   ] = the_hn.neu.pdgId()
+    tofill_gen['nu_mass'     ] = the_hn.neu.mass()
+    tofill_gen['nu_pt'       ] = the_hn.neu.pt()
+    tofill_gen['nu_eta'      ] = the_hn.neu.eta()
+    tofill_gen['nu_phi'      ] = the_hn.neu.phi()
+    tofill_gen['nu_q'        ] = the_hn.neu.charge()
+    tofill_gen['nu_pdgid'    ] = the_hn.neu.pdgId()
 
-    tofill_gen['sv_x'       ] = the_sv.x()
-    tofill_gen['sv_y'       ] = the_sv.y()
-    tofill_gen['sv_z'       ] = the_sv.z()
+    tofill_gen['sv_x'        ] = the_sv.x()
+    tofill_gen['sv_y'        ] = the_sv.y()
+    tofill_gen['sv_z'        ] = the_sv.z()
+
+    if hasattr(ev, 'recoSv') and ev.recoSv:
+        tofill_gen['sv_reco_x'   ] = ev.recoSv.x()
+        tofill_gen['sv_reco_y'   ] = ev.recoSv.y()
+        tofill_gen['sv_reco_z'   ] = ev.recoSv.z()
+        tofill_gen['sv_reco_prob'] = ROOT.TMath.Prob(ev.recoSv.chi2(), int(ev.recoSv.ndof()))
 
     ntuple_gen.Fill(array('f',tofill_gen.values()))
 

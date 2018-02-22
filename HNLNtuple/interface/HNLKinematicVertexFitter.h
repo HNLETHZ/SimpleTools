@@ -1,18 +1,3 @@
-#include "FWCore/Framework/interface/EDAnalyzer.h"
-#include "FWCore/Framework/interface/ESHandle.h"
-#include "FWCore/Framework/interface/EventSetup.h"
-#include "FWCore/Framework/interface/Frameworkfwd.h"
-#include "FWCore/Framework/interface/MakerMacros.h"
-#include "FWCore/ServiceRegistry/interface/Service.h"
-#include "FWCore/Framework/interface/ConsumesCollector.h"
-
-#include "DataFormats/Common/interface/Handle.h"
-#include "DataFormats/HepMCCandidate/interface/GenParticle.h"
-#include "DataFormats/HepMCCandidate/interface/GenParticleFwd.h"
-#include "DataFormats/PatCandidates/interface/Muon.h"
-#include "DataFormats/MuonReco/interface/Muon.h"
-#include "DataFormats/MuonReco/interface/MuonFwd.h"
-#include "DataFormats/MuonReco/interface/MuonSelectors.h"
 #include "DataFormats/TrackReco/interface/Track.h"
 #include "DataFormats/TrackReco/interface/TrackFwd.h"
 #include "DataFormats/VertexReco/interface/Vertex.h"
@@ -20,7 +5,6 @@
 
 #include "MagneticField/Engine/interface/MagneticField.h"
 #include "MagneticField/Records/interface/IdealMagneticFieldRecord.h"
-#include "RecoVertex/KalmanVertexFit/interface/KalmanVertexFitter.h"
 #include "TrackingTools/PatternTools/interface/ClosestApproachInRPhi.h"
 #include "TrackingTools/PatternTools/interface/TSCBLBuilderNoMaterial.h"
 #include "TrackingTools/Records/interface/TransientTrackRecord.h"
@@ -40,8 +24,9 @@
 #include "RecoVertex/KinematicFitPrimitives/interface/RefCountedKinematicParticle.h"
 #include "RecoVertex/KinematicFitPrimitives/interface/KinematicVertex.h"
 #include "RecoVertex/KinematicFitPrimitives/interface/KinematicParametersError.h"
-#include "RecoVertex/VertexTools/interface/VertexDistance3D.h"
-#include "RecoVertex/VertexTools/interface/VertexDistanceXY.h"
+
+#include "DataFormats/RecoCandidate/interface/RecoChargedCandidate.h"
+#include "DataFormats/RecoCandidate/interface/RecoChargedCandidateFwd.h"
 
 class HNLKinematicVertexFitter {
 
@@ -54,33 +39,27 @@ class HNLKinematicVertexFitter {
       return transientTrack;
     }
 
-    RefCountedKinematicTree Fit(const pat::MuonCollection & muons){
+    RefCountedKinematicTree Fit(const std::vector<reco::RecoChargedCandidate> & candidates){
 
       KinematicParticleFactoryFromTransientTrack pFactory;  
-      std::vector<RefCountedKinematicParticle> XParticles_Tau3Mu;
+      std::vector<RefCountedKinematicParticle> XParticles;
 
-      // do tau vertex fit
-      std::vector<reco::TransientTrack> tau_tks;
-      for (pat::MuonCollection::const_iterator imu = muons.begin(); imu != muons.end(); ++imu){
-        XParticles_Tau3Mu.push_back(pFactory.particle(getTransientTrack(imu->track()), muon_mass, chi, ndf, muon_sigma));
+      for (std::vector<reco::RecoChargedCandidate>::const_iterator ilc = candidates.begin(); ilc != candidates.end(); ++ilc){
+        float pmass  = ilc->mass();
+        float pmasse = 1.e-6 * pmass;
+        XParticles.push_back(pFactory.particle(getTransientTrack(ilc->track()), pmass, chi, ndf, pmasse));
       }
 
-      // maybe there are other tracks to consider
-      // http://cmslxr.fnal.gov/source/DataFormats/PatCandidates/interface/Muon.h#0070
-
-
-      KinematicConstrainedVertexFitter kvFitterTau;
-      RefCountedKinematicTree Tau3MuKinVtx = kvFitterTau.fit(XParticles_Tau3Mu); 
+      KinematicConstrainedVertexFitter kvFitter;
+      RefCountedKinematicTree KinVtx = kvFitter.fit(XParticles); 
       
-      return Tau3MuKinVtx;
+      return KinVtx;
         
     }
 
   private:
     OAEParametrizedMagneticField *paramField = new OAEParametrizedMagneticField("3_8T");
-    // The mass of a muon and the insignificant mass sigma to avoid singularities in the covariance matrix.
-    float muon_mass  = 0.10565837; 
-    float muon_sigma = muon_mass*1.e-6;
+    // Insignificant mass sigma to avoid singularities in the covariance matrix.
     // initial chi2 and ndf before kinematic fits. The chi2 of the reconstruction is not considered 
     float chi        = 0.;
     float ndf        = 0.;

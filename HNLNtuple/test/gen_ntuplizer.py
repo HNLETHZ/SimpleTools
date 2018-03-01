@@ -225,7 +225,7 @@ for i, ev in enumerate(events):
     tofill_gen['nvtx'        ] = len(ev.pvs)
 
     tofill_gen['in_acc'      ] = abs(the_hn.lep1.finallep.eta())<2.5 and \
-                                 abs(the_hn.lep1.finallep.eta())<2.5 and \
+                                 abs(the_hn.lep2.finallep.eta())<2.5 and \
                                  abs(the_pl.finallep     .eta())<2.5
                                 
     tofill_gen['hn_mass'     ] = the_hn.mass()
